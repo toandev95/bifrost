@@ -409,6 +409,12 @@
         "fireworks": {
           "$ref": "#/$defs/provider"
         },
+        "command-code": {
+          "$ref": "#/$defs/provider"
+        },
+        "antigravity": {
+          "$ref": "#/$defs/provider"
+        },
         "nebius": {
           "$ref": "#/$defs/provider"
         },
@@ -5594,7 +5600,8 @@
             "vllm",
             "runway",
             "runware",
-            "fireworks"
+            "fireworks",
+            "command-code"
           ],
           "description": "Base provider type to extend"
         },

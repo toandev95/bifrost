@@ -410,6 +410,26 @@ export const providersApi = baseApi.injectEndpoints({
 			}),
 			invalidatesTags: ["Models"],
 		}),
+
+		// Antigravity OAuth — start the Google "Connect" flow. Returns the
+		// authorization URL to open in the browser plus a state token.
+		startAntigravityOAuth: builder.mutation<{ state: string; authorize_url: string; redirect_uri: string }, void>({
+			query: () => ({
+				url: "/providers/antigravity/oauth/start",
+				method: "POST",
+				body: {},
+			}),
+		}),
+
+		// Antigravity OAuth — exchange the authorization code for a stored
+		// credential blob (refresh token + Cloud Code project id + email).
+		exchangeAntigravityOAuth: builder.mutation<{ email: string; project_id: string; credential: string }, { state: string; code: string }>({
+			query: (body) => ({
+				url: "/providers/antigravity/oauth/exchange",
+				method: "POST",
+				body,
+			}),
+		}),
 	}),
 });
 
@@ -439,4 +459,6 @@ export const {
 	useGetModelDetailsQuery,
 	useLazyGetModelDetailsQuery,
 	useUpsertModelCatalogEntriesMutation,
+	useStartAntigravityOAuthMutation,
+	useExchangeAntigravityOAuthMutation,
 } = providersApi;

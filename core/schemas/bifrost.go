@@ -68,6 +68,8 @@ const (
 	Runway        ModelProvider = "runway"
 	Runware       ModelProvider = "runware"
 	Fireworks     ModelProvider = "fireworks"
+	CommandCode   ModelProvider = "command-code"
+	Antigravity   ModelProvider = "antigravity"
 )
 
 // SupportedBaseProviders is the list of base providers allowed for custom providers.
@@ -110,6 +112,8 @@ var StandardProviders = []ModelProvider{
 	Runway,
 	Runware,
 	Fireworks,
+	CommandCode,
+	Antigravity,
 }
 
 // RequestType represents the type of request being made to a provider.
