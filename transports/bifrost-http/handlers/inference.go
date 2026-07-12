@@ -46,15 +46,17 @@ func forwardProviderHeadersFromContext(ctx *fasthttp.RequestCtx, bifrostCtx *sch
 
 // CompletionHandler manages HTTP requests for completion operations
 type CompletionHandler struct {
-	client *bifrost.Bifrost
-	config *lib.Config
+	client         *bifrost.Bifrost
+	config         *lib.Config
+	responsesState *lib.ResponsesStateStore
 }
 
 // NewInferenceHandler creates a new completion handler instance
 func NewInferenceHandler(client *bifrost.Bifrost, config *lib.Config) *CompletionHandler {
 	return &CompletionHandler{
-		client: client,
-		config: config,
+		client:         client,
+		config:         config,
+		responsesState: lib.NewResponsesStateStore(config.GetKVStore()),
 	}
 }
 
@@ -1126,6 +1128,11 @@ func (h *CompletionHandler) responses(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Failed to convert context")
 		return
 	}
+	if err := h.responsesState.Expand(bifrostResponsesReq); err != nil {
+		cancel()
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
 
 	if effectiveStream(req.Stream) {
 		h.handleStreamingResponses(ctx, bifrostResponsesReq, bifrostCtx, cancel)
@@ -1147,6 +1154,7 @@ func (h *CompletionHandler) responses(ctx *fasthttp.RequestCtx) {
 	if streamLargeResponseIfActive(ctx, bifrostCtx) {
 		return
 	}
+	h.responsesState.Save(bifrostResponsesReq, resp)
 	// Send successful response
 	SendJSON(ctx, resp)
 }
@@ -1835,7 +1843,15 @@ func (h *CompletionHandler) handleStreamingResponses(ctx *fasthttp.RequestCtx, r
 		return h.client.ResponsesStreamRequest(bifrostCtx, req)
 	}
 
-	h.handleStreamingResponse(ctx, bifrostCtx, getStream, cancel)
+	h.handleStreamingResponse(ctx, bifrostCtx, getStream, cancel, func(chunk *schemas.BifrostStreamChunk) {
+		if chunk == nil || chunk.BifrostResponsesStreamResponse == nil {
+			return
+		}
+		event := chunk.BifrostResponsesStreamResponse
+		if event.Type == schemas.ResponsesStreamResponseTypeCompleted && event.Response != nil {
+			h.responsesState.Save(req, event.Response)
+		}
+	})
 }
 
 // handleStreamingSpeech handles streaming speech requests using Server-Sent Events (SSE)
@@ -1866,7 +1882,7 @@ func (h *CompletionHandler) handleStreamingTranscriptionRequest(ctx *fasthttp.Re
 // The cancel function is called ONLY when client disconnects are detected via write errors.
 // Bifrost handles cleanup internally for normal completion and errors, so we only cancel
 // upstream streams when write errors indicate the client has disconnected.
-func (h *CompletionHandler) handleStreamingResponse(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.BifrostContext, getStream func() (chan *schemas.BifrostStreamChunk, *schemas.BifrostError), cancel context.CancelFunc) {
+func (h *CompletionHandler) handleStreamingResponse(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.BifrostContext, getStream func() (chan *schemas.BifrostStreamChunk, *schemas.BifrostError), cancel context.CancelFunc, observers ...func(*schemas.BifrostStreamChunk)) {
 	// Get the streaming channel — called BEFORE setting SSE headers so that
 	// provider errors return proper HTTP status codes + JSON content type.
 	stream, bifrostErr := getStream()
@@ -1985,6 +2001,11 @@ func (h *CompletionHandler) handleStreamingResponse(ctx *fasthttp.RequestCtx, bi
 		for chunk := range stream {
 			if chunk == nil {
 				continue
+			}
+			for _, observer := range observers {
+				if observer != nil {
+					observer(chunk)
+				}
 			}
 
 			includeEventType = false

@@ -28,6 +28,7 @@ export const KnownProvidersNames = [
 	"runway",
 	"runware",
 	"fireworks",
+	"command-code",
 ] as const;
 
 // Local Provider type derived from KNOWN_PROVIDERS constant
@@ -137,6 +138,7 @@ export const ProviderLabels: Record<ProviderName, string> = {
 	runway: "Runway",
 	runware: "Runware",
 	fireworks: "Fireworks AI",
+	"command-code": "Command Code",
 } as const;
 
 // Helper function to get provider label, supporting custom providers

@@ -239,7 +239,7 @@ func (chunk *BedrockStreamEvent) ToBifrostResponsesStream(sequenceNumber int, st
 
 		// Generate message ID if not already set
 		if state.MessageID == nil {
-			messageID := fmt.Sprintf("msg_%d", state.CreatedAt)
+			messageID := fmt.Sprintf("resp_%d", state.CreatedAt)
 			state.MessageID = &messageID
 		}
 
@@ -247,7 +247,9 @@ func (chunk *BedrockStreamEvent) ToBifrostResponsesStream(sequenceNumber int, st
 		if !state.HasEmittedCreated {
 			response := &schemas.BifrostResponsesResponse{
 				ID:        state.MessageID,
+				Object:    "response",
 				CreatedAt: state.CreatedAt,
+				Status:    schemas.Ptr(schemas.ResponsesResponseStatusInProgress),
 			}
 			if state.Model != nil {
 				response.Model = *state.Model
@@ -264,7 +266,9 @@ func (chunk *BedrockStreamEvent) ToBifrostResponsesStream(sequenceNumber int, st
 		if !state.HasEmittedInProgress {
 			response := &schemas.BifrostResponsesResponse{
 				ID:        state.MessageID,
+				Object:    "response",
 				CreatedAt: state.CreatedAt, // Use same timestamp
+				Status:    schemas.Ptr(schemas.ResponsesResponseStatusInProgress),
 			}
 			if state.Model != nil {
 				response.Model = *state.Model
@@ -1165,13 +1169,15 @@ func FinalizeBedrockStream(state *BedrockResponsesStreamState, sequenceNumber in
 	// Synthesize lifecycle events if Bedrock never sent a messageStart
 	if !state.HasEmittedCreated {
 		if state.MessageID == nil {
-			messageID := fmt.Sprintf("msg_%d", state.CreatedAt)
+			messageID := fmt.Sprintf("resp_%d", state.CreatedAt)
 			state.MessageID = &messageID
 		}
 		createdResponse := &schemas.BifrostResponsesResponse{
 			ID:        state.MessageID,
+			Object:    "response",
 			CreatedAt: state.CreatedAt,
 			Usage:     usage,
+			Status:    schemas.Ptr(schemas.ResponsesResponseStatusInProgress),
 		}
 		if state.Model != nil {
 			createdResponse.Model = *state.Model
@@ -1187,7 +1193,9 @@ func FinalizeBedrockStream(state *BedrockResponsesStreamState, sequenceNumber in
 	if !state.HasEmittedInProgress {
 		inProgressResponse := &schemas.BifrostResponsesResponse{
 			ID:        state.MessageID,
+			Object:    "response",
 			CreatedAt: state.CreatedAt,
+			Status:    schemas.Ptr(schemas.ResponsesResponseStatusInProgress),
 		}
 		if state.Model != nil {
 			inProgressResponse.Model = *state.Model
@@ -1465,9 +1473,12 @@ func FinalizeBedrockStream(state *BedrockResponsesStreamState, sequenceNumber in
 	// Emit response.completed
 	response := &schemas.BifrostResponsesResponse{
 		ID:        state.MessageID,
+		Object:    "response",
 		CreatedAt: state.CreatedAt,
 		Usage:     usage,
 	}
+	completedAt := int(time.Now().Unix())
+	response.CompletedAt = &completedAt
 
 	if trace != nil {
 		response.ProviderExtraFields = map[string]interface{}{
@@ -2657,7 +2668,8 @@ func (response *BedrockConverseResponse) ToBifrostResponsesResponse(ctx *schemas
 	}
 
 	bifrostResp := &schemas.BifrostResponsesResponse{
-		ID:        schemas.Ptr(uuid.New().String()),
+		ID:        schemas.Ptr("resp_" + uuid.New().String()),
+		Object:    "response",
 		CreatedAt: int(time.Now().Unix()),
 	}
 
@@ -2754,6 +2766,9 @@ func (response *BedrockConverseResponse) ToBifrostResponsesResponse(ctx *schemas
 			"trace": response.Trace,
 		}
 	}
+
+	completedAt := int(time.Now().Unix())
+	bifrostResp.CompletedAt = &completedAt
 
 	return bifrostResp, nil
 }

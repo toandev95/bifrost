@@ -27,6 +27,9 @@
   # Set environment for CGO-enabled build (required for go-sqlite3)
   ENV CGO_ENABLED=1 GOOS=linux
 
+  COPY core/ ../core/
+  COPY framework/ ../framework/
+  COPY plugins/logging/ ../plugins/logging/
   COPY transports/go.mod transports/go.sum ./
   RUN ls
   RUN cat go.mod

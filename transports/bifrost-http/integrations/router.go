@@ -318,6 +318,10 @@ type ChatStreamResponseConverter func(ctx *schemas.BifrostContext, resp *schemas
 // It takes a BifrostResponsesStreamResponse and returns a single event type and payload, which can itself encode one or more SSE events if needed by the integration.
 type ResponsesStreamResponseConverter func(ctx *schemas.BifrostContext, resp *schemas.BifrostResponsesStreamResponse) (string, interface{}, error)
 
+// ResponsesStreamObserver receives terminal Responses events before they are
+// serialized to the integration wire format.
+type ResponsesStreamObserver func(req *schemas.BifrostResponsesRequest, resp *schemas.BifrostResponsesStreamResponse)
+
 // SpeechStreamResponseConverter is a function that converts BifrostSpeechStreamResponse to integration-specific streaming format.
 // It takes a BifrostSpeechStreamResponse and returns the event type and the streaming format expected by the specific integration.
 type SpeechStreamResponseConverter func(ctx *schemas.BifrostContext, resp *schemas.BifrostSpeechStreamResponse) (string, interface{}, error)
@@ -500,6 +504,7 @@ type RouteConfig struct {
 	CompactionResponseConverter            CompactionResponseConverter            // Function to convert BifrostCompactionResponse to integration format
 	ErrorConverter                         ErrorConverter                         // Function to convert BifrostError to integration format (SHOULD NOT BE NIL)
 	StreamConfig                           *StreamConfig                          // Optional: Streaming configuration (if nil, streaming not supported)
+	ResponsesStreamObserver                ResponsesStreamObserver                // Optional observer for Responses stream events
 	PreCallback                            PreRequestCallback                     // Optional: called after parsing but before Bifrost processing
 	PostCallback                           PostRequestCallback                    // Optional: called after request processing
 	ShortCircuit                           ShortCircuit
@@ -2591,7 +2596,7 @@ func (g *GenericRouter) handleStreamingRequest(ctx *fasthttp.RequestCtx, config 
 
 	// Handle streaming using the centralized approach
 	// Pass cancel function so it can be called when the writer exits (errors, completion, etc.)
-	g.handleStreaming(ctx, bifrostCtx, config, stream, cancel)
+	g.handleStreaming(ctx, bifrostCtx, config, stream, cancel, bifrostReq)
 }
 
 // handleStreaming processes a stream of BifrostResponse objects and sends them as Server-Sent Events (SSE).
@@ -2644,7 +2649,11 @@ func (g *GenericRouter) handleStreamingRequest(ctx *fasthttp.RequestCtx, config 
 // The cancel function is called ONLY when client disconnects are detected via write errors.
 // Bifrost handles cleanup internally for normal completion and errors, so we only cancel
 // upstream streams when write errors indicate the client has disconnected.
-func (g *GenericRouter) handleStreaming(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.BifrostContext, config RouteConfig, streamChan chan *schemas.BifrostStreamChunk, cancel context.CancelFunc) {
+func (g *GenericRouter) handleStreaming(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.BifrostContext, config RouteConfig, streamChan chan *schemas.BifrostStreamChunk, cancel context.CancelFunc, requests ...*schemas.BifrostRequest) {
+	var bifrostReq *schemas.BifrostRequest
+	if len(requests) > 0 {
+		bifrostReq = requests[0]
+	}
 	// Signal to tracing middleware that trace completion should be deferred
 	// The streaming callback will complete the trace after the stream ends
 	ctx.SetUserValue(schemas.BifrostContextKeyDeferTraceCompletion, true)
@@ -2695,6 +2704,9 @@ func (g *GenericRouter) handleStreaming(ctx *fasthttp.RequestCtx, bifrostCtx *sc
 		for chunk := range streamChan {
 			if chunk == nil {
 				continue
+			}
+			if config.ResponsesStreamObserver != nil && bifrostReq != nil && bifrostReq.ResponsesRequest != nil && chunk.BifrostResponsesStreamResponse != nil {
+				config.ResponsesStreamObserver(bifrostReq.ResponsesRequest, chunk.BifrostResponsesStreamResponse)
 			}
 
 			// Note: We no longer check ctx.Done() here because fasthttp.RequestCtx.Done()

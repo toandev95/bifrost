@@ -285,6 +285,7 @@ func openAIResponsesWireConverter(ctx *schemas.BifrostContext, resp *schemas.Bif
 
 // CreateOpenAIRouteConfigs creates route configurations for OpenAI endpoints.
 func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) []RouteConfig {
+	responsesState := lib.NewResponsesStateStore(handlerStore.GetKVStore())
 	var routes []RouteConfig
 
 	routes = append(routes, RouteConfig{
@@ -712,13 +713,33 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 			},
 			RequestConverter: func(ctx *schemas.BifrostContext, req interface{}) (*schemas.BifrostRequest, error) {
 				if openaiReq, ok := req.(*openai.OpenAIResponsesRequest); ok {
+					responsesReq := openaiReq.ToBifrostResponsesRequest(ctx)
+					if err := responsesState.Expand(responsesReq); err != nil {
+						return nil, err
+					}
 					return &schemas.BifrostRequest{
-						ResponsesRequest: openaiReq.ToBifrostResponsesRequest(ctx),
+						ResponsesRequest: responsesReq,
 					}, nil
 				}
 				return nil, errors.New("invalid request type")
 			},
 			ResponsesResponseConverter: openAIResponsesWireConverter,
+			PostCallback: func(_ *fasthttp.RequestCtx, req interface{}, response interface{}) error {
+				openaiReq, ok := req.(*openai.OpenAIResponsesRequest)
+				if !ok {
+					return errors.New("invalid OpenAI Responses request")
+				}
+				responsesResp, ok := response.(*schemas.BifrostResponsesResponse)
+				if !ok {
+					return errors.New("invalid Responses response")
+				}
+				responsesReq := openaiReq.ToBifrostResponsesRequest(nil)
+				if err := responsesState.Expand(responsesReq); err != nil {
+					return err
+				}
+				responsesState.Save(responsesReq, responsesResp)
+				return nil
+			},
 			AsyncResponsesResponseConverter: func(ctx *schemas.BifrostContext, resp *schemas.AsyncJobResponse, responsesResponseConverter ResponsesResponseConverter) (interface{}, map[string]string, error) {
 				bifrostResponse := &schemas.BifrostResponsesResponse{
 					ID:     &resp.ID,
@@ -756,6 +777,11 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 				ErrorConverter: func(ctx *schemas.BifrostContext, err *schemas.BifrostError) interface{} {
 					return err
 				},
+			},
+			ResponsesStreamObserver: func(req *schemas.BifrostResponsesRequest, event *schemas.BifrostResponsesStreamResponse) {
+				if event != nil && event.Type == schemas.ResponsesStreamResponseTypeCompleted && event.Response != nil {
+					responsesState.Save(req, event.Response)
+				}
 			},
 			PreCallback: func(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.BifrostContext, req interface{}) error {
 				hydrateOpenAIRequestFromLargePayloadMetadata(ctx, bifrostCtx, req)

@@ -41,6 +41,14 @@ require (
 	gorm.io/gorm v1.31.1
 )
 
+// The transport, framework, and core are built together from this checkout so
+// unreleased cross-module changes are available in Docker builds as well.
+replace github.com/maximhq/bifrost/core => ../core
+
+replace github.com/maximhq/bifrost/framework => ../framework
+
+replace github.com/maximhq/bifrost/plugins/logging => ../plugins/logging
+
 require (
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.123.0 // indirect
